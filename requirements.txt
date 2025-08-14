@@ -5,3 +5,4 @@ pillow
 opencv-python
 spacy
 pandas
+cv2
