@@ -1,8 +1,11 @@
-streamlit
-pymupdf
-pytesseract
-pillow
-opencv-python
-spacy
-pandas
-cv2
+# Streamlit for the web app
+streamlit==1.36.0
+
+# Google Gemini API SDK
+google-generativeai==0.7.2
+
+# PDF text extraction
+pymupdf==1.24.9   # (modern, lightweight PDF library)
+
+# Environment variables (optional, for API key)
+python-dotenv==1.0.1
