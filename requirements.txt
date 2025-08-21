@@ -1,15 +1,4 @@
-# Web framework
 streamlit==1.36.0
-
-# Google Gemini API SDK
 google-generativeai==0.7.2
-
-# PDF text extraction
 pymupdf==1.24.9
-
-# Excel/CSV export
-pandas==2.2.2
-openpyxl==3.1.5   # for .xlsx file export
-
-# Environment variables (optional, for API key handling)
 python-dotenv==1.0.1
