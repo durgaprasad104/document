@@ -13,7 +13,7 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 st.set_page_config(page_title="PDF Document Parser", page_icon="📑")
 st.title("📑 Smart PDF Document Parser")
 st.write("Upload multiple Aadhaar, PAN, Passport, or Study Certificates (PDF). "
-         "The app detects the type and extracts fields, then lets you download Excel/CSV.")
+         "The app detects the type and extracts fields, then lets you download Excel.")
 
 # Allow multiple uploads
 uploaded_pdfs = st.file_uploader("Upload your documents (PDF only)", type=["pdf"], accept_multiple_files=True)
