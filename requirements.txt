@@ -9,3 +9,5 @@ pymupdf==1.24.9   # (modern, lightweight PDF library)
 
 # Environment variables (optional, for API key)
 python-dotenv==1.0.1
+pandas==2.2.2
+openpyxl==3.1.5
