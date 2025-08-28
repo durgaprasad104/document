@@ -17,3 +17,5 @@ openpyxl==3.1.5   # for Excel writing
 
 # Utilities
 numpy==1.26.4
+python-3.10
+
