@@ -7,7 +7,7 @@ from io import BytesIO
 # -------------------------------
 # Configure Gemini API
 # -------------------------------
-genai.configure(api_key="AIzaSyAuJY7wt1YV0XP9TvHvzgv4MUKdqxgvo5k")  # Replace with your API key
+genai.configure(api_key="AIzaSyAUog3t78n5REhJ2iiREZ5QtQ1tgC3AsPU")  # Replace with your API key
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 st.set_page_config(page_title="PDF Document Parser", page_icon="📑")
