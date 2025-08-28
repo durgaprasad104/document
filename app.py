@@ -13,7 +13,7 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 st.set_page_config(page_title="PDF Document Parser", page_icon="📑")
 st.title("📑 Smart PDF Document Parser")
 st.write("Upload one or more PDFs (Aadhaar, PAN, Passport, or Study Certificates). "
-         "Each PDF will be analyzed, and results saved into Excel (one sheet per document type).")
+         "Each PDF will be analyzed, and results saved into Excel (one sheet per document typee).")
 
 # -------------------------------
 # Helper: extract clean JSON
