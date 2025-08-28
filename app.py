@@ -7,13 +7,14 @@ from io import BytesIO
 # -------------------------------
 # Configure Gemini API
 # -------------------------------
-genai.configure(api_key="AIzaSyA7elBt6OV5CHgghLBdBEr1cjVBaGPn9hw")
+genai.configure(api_key="AIzaSyA7elBt6OV5CHgghLBdBEr1cjVBaGPn9hw")  # Replace with your API key
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 st.set_page_config(page_title="PDF Document Parser", page_icon="📑")
 st.title("📑 Smart PDF Document Parser")
-st.write("Upload one or more PDFs (Aadhaar, PAN, Passport, or Study Certificates). "
-         "Each PDF will be analyzed, and results saved into Excel (one sheet per document typee).")
+st.write("Upload one or more PDFs. Each file may contain multiple documents "
+         "(Aadhaar, PAN, Passport, Study Certificates). "
+         "All parsed data will be saved to Excel with one sheet per document type.")
 
 # -------------------------------
 # Helper: extract clean JSON
@@ -48,32 +49,50 @@ def extract_json_block(text: str) -> str | None:
     return None
 
 # -------------------------------
-# Prompt for Gemini
+# Prompt for Gemini (multi-doc)
 # -------------------------------
 prompt = """
 You are an intelligent document parser.
-The uploaded PDF may contain Aadhaar, PAN, Passport, or Study Certificates.
+The uploaded PDF may contain MULTIPLE documents (Aadhaar, PAN, Passport, Study Certificates) inside one file.
 
-Extract ONLY these fields based on type:
+Your tasks:
+1. Detect all documents inside the PDF.
+2. For each document, identify its type.
+3. Extract ONLY the required fields.
+
+Required fields:
 - Aadhaar → Name, DOB, Aadhaar Number
 - PAN → Name, DOB, PAN Number
 - Passport → Name, Passport Number, Nationality, DOB, Expiry Date
 - Study Certificate → Student Name, Course, College/University, Passout Year
 
 Return ONLY valid JSON like this:
+
 {
-  "document_type": "Study Certificate",
-  "extracted_fields": {
-    "Student Name": "Alice",
-    "Course": "B.Tech CSE",
-    "College/University": "XYZ University",
-    "Passout Year": "2025"
-  }
+  "documents": [
+    {
+      "document_type": "Study Certificate",
+      "extracted_fields": {
+        "Student Name": "Alice",
+        "Course": "B.Tech CSE",
+        "College/University": "XYZ University",
+        "Passout Year": "2025"
+      }
+    },
+    {
+      "document_type": "PAN",
+      "extracted_fields": {
+        "Name": "John Doe",
+        "DOB": "01-01-1990",
+        "PAN Number": "ABCDE1234F"
+      }
+    }
+  ]
 }
 """
 
 # -------------------------------
-# Column mapping per document type
+# Column mapping per doc type
 # -------------------------------
 doc_columns = {
     "Aadhaar": ["document_type", "Name", "DOB", "Aadhaar Number", "source_file"],
@@ -83,7 +102,7 @@ doc_columns = {
 }
 
 # -------------------------------
-# File uploader (multiple PDFs)
+# File uploader
 # -------------------------------
 uploaded_pdfs = st.file_uploader("Upload your documents (PDF only)", type=["pdf"], accept_multiple_files=True)
 
@@ -106,12 +125,19 @@ if uploaded_pdfs and st.button("Extract All Details"):
                 candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
                 data = json.loads(candidate)
 
-                if isinstance(data, dict):
+                # ✅ Handle multiple docs inside one PDF
+                if isinstance(data, dict) and "documents" in data:
+                    for doc in data["documents"]:
+                        flat = {"document_type": doc.get("document_type", "")}
+                        if isinstance(doc.get("extracted_fields"), dict):
+                            flat.update(doc["extracted_fields"])
+                        flat["source_file"] = pdf.name
+                        results.append(flat)
+                else:
+                    # fallback single document
                     flat = {"document_type": data.get("document_type", "")}
                     if isinstance(data.get("extracted_fields"), dict):
                         flat.update(data["extracted_fields"])
-                    elif isinstance(data.get("extracted_data"), dict):
-                        flat.update(data["extracted_data"])
                     flat["source_file"] = pdf.name
                     results.append(flat)
 
@@ -124,7 +150,7 @@ if uploaded_pdfs and st.button("Extract All Details"):
     st.dataframe(df)
 
     # -------------------------------
-    # Excel download (multi-sheet, no "All Documents")
+    # Excel download (multi-sheet)
     # -------------------------------
     xbuf = BytesIO()
     with pd.ExcelWriter(xbuf, engine="openpyxl") as writer:
@@ -139,7 +165,6 @@ if uploaded_pdfs and st.button("Extract All Details"):
                     group = group.reindex(columns=cols)
                 group.to_excel(writer, index=False, sheet_name=safe_sheet_name)
                 wrote_any = True
-
         if not wrote_any:
             pd.DataFrame([{"message": "No valid data extracted"}]).to_excel(
                 writer, index=False, sheet_name="Results"
