@@ -1,13 +1,19 @@
-# Streamlit for the web app
+# Web framework
 streamlit==1.36.0
 
 # Google Gemini API SDK
 google-generativeai==0.7.2
 
-# PDF text extraction
-pymupdf==1.24.9   # (modern, lightweight PDF library)
+# PDF handling
+pymupdf==1.24.9   # (fitz)
 
-# Environment variables (optional, for API key)
-python-dotenv==1.0.1
+# OCR
+pytesseract==0.3.10
+Pillow==10.4.0    # for image processing
+
+# Excel/CSV export
 pandas==2.2.2
-openpyxl==3.1.5
+openpyxl==3.1.5   # for Excel writing
+
+# Utilities
+numpy==1.26.4
