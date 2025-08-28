@@ -1,19 +1,6 @@
-# Web framework
 streamlit==1.36.0
-
-# Google Gemini API SDK
 google-generativeai==0.7.2
-
-# PDF handling
 pymupdf==1.24.9
-
-# OCR
-pytesseract==0.3.10
-Pillow==10.4.0
-
-# Excel/CSV export
 pandas==2.2.2
 openpyxl==3.1.5
-
-# Utilities
 numpy==1.26.4
