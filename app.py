@@ -2,10 +2,6 @@ import streamlit as st
 import google.generativeai as genai
 import json, re
 import pandas as pd
-import fitz  # PyMuPDF
-import pytesseract
-from PIL import Image
-import io
 from io import BytesIO
 
 # -------------------------------
@@ -17,7 +13,7 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 st.set_page_config(page_title="PDF Document Parser", page_icon="📑")
 st.title("📑 Smart PDF Document Parser")
 st.write("Upload one or more PDFs (Aadhaar, PAN, Passport, or Study Certificates). "
-         "Each page will be OCR-processed, analyzed, and results saved into Excel.")
+         "Each PDF will be analyzed, and results saved into Excel (one sheet per document type).")
 
 # -------------------------------
 # Helper: extract clean JSON
@@ -56,7 +52,7 @@ def extract_json_block(text: str) -> str | None:
 # -------------------------------
 prompt = """
 You are an intelligent document parser.
-This page may contain Aadhaar, PAN, Passport, or Study Certificates.
+The uploaded PDF may contain Aadhaar, PAN, Passport, or Study Certificates.
 
 Extract ONLY these fields based on type:
 - Aadhaar → Name, DOB, Aadhaar Number
@@ -64,14 +60,14 @@ Extract ONLY these fields based on type:
 - Passport → Name, Passport Number, Nationality, DOB, Expiry Date
 - Study Certificate → Student Name, Course, College/University, Passout Year
 
-Return JSON in this exact format:
+Return ONLY valid JSON like this:
 {
   "document_type": "Study Certificate",
   "extracted_fields": {
-    "Student Name": "...",
-    "Course": "...",
-    "College/University": "...",
-    "Passout Year": "..."
+    "Student Name": "Alice",
+    "Course": "B.Tech CSE",
+    "College/University": "XYZ University",
+    "Passout Year": "2025"
   }
 }
 """
@@ -97,42 +93,30 @@ uploaded_pdfs = st.file_uploader("Upload your documents (PDF only)", type=["pdf"
 if uploaded_pdfs and st.button("Extract All Details"):
     results = []
 
-    with st.spinner("Running OCR and analyzing all PDFs..."):
+    with st.spinner("Analyzing PDFs with Gemini..."):
         for pdf in uploaded_pdfs:
-            pdf_data = pdf.read()
-            doc = fitz.open(stream=pdf_data, filetype="pdf")
+            try:
+                pdf_data = pdf.read()
+                response = model.generate_content(
+                    [prompt, {"mime_type": "application/pdf", "data": pdf_data}]
+                )
 
-            for page_num in range(len(doc)):
-                try:
-                    page = doc.load_page(page_num)
-                    pix = page.get_pixmap(dpi=300)  # Render page as image
-                    img = Image.open(io.BytesIO(pix.tobytes("png")))
+                raw = (response.text or "").strip()
+                candidate = extract_json_block(raw) or raw
+                candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+                data = json.loads(candidate)
 
-                    # OCR with pytesseract
-                    page_text = pytesseract.image_to_string(img)
+                if isinstance(data, dict):
+                    flat = {"document_type": data.get("document_type", "")}
+                    if isinstance(data.get("extracted_fields"), dict):
+                        flat.update(data["extracted_fields"])
+                    elif isinstance(data.get("extracted_data"), dict):
+                        flat.update(data["extracted_data"])
+                    flat["source_file"] = pdf.name
+                    results.append(flat)
 
-                    if not page_text.strip():
-                        continue  # skip empty pages
-
-                    response = model.generate_content([prompt, page_text])
-                    raw = (response.text or "").strip()
-
-                    candidate = extract_json_block(raw) or raw
-                    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-
-                    data = json.loads(candidate)
-
-                    if isinstance(data, dict):
-                        flat = {"document_type": data.get("document_type", "")}
-                        if isinstance(data.get("extracted_fields"), dict):
-                            flat.update(data["extracted_fields"])
-                        elif isinstance(data.get("extracted_data"), dict):
-                            flat.update(data["extracted_data"])
-                        flat["source_file"] = f"{pdf.name} (page {page_num+1})"
-                        results.append(flat)
-
-                except Exception as e:
-                    results.append({"source_file": f"{pdf.name} (page {page_num+1})", "error": str(e)})
+            except Exception as e:
+                results.append({"source_file": pdf.name, "error": str(e)})
 
     # Convert to DataFrame
     df = pd.DataFrame(results)
@@ -140,7 +124,7 @@ if uploaded_pdfs and st.button("Extract All Details"):
     st.dataframe(df)
 
     # -------------------------------
-    # Excel download (multi-sheet, no All Documents)
+    # Excel download (multi-sheet, no "All Documents")
     # -------------------------------
     xbuf = BytesIO()
     with pd.ExcelWriter(xbuf, engine="openpyxl") as writer:
