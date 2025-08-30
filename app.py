@@ -2,19 +2,22 @@ import streamlit as st
 import google.generativeai as genai
 import json, re
 import pandas as pd
+import fitz  # PyMuPDF
+import pytesseract
+from PIL import Image
+import io
 from io import BytesIO
 
 # -------------------------------
 # Configure Gemini API
 # -------------------------------
-genai.configure(api_key="AIzaSyAUog3t78n5REhJ2iiREZ5QtQ1tgC3AsPU")  # Replace with your API key
+genai.configure(api_key="AIzaSyAUog3t78n5REhJ2iiREZ5QtQ1tgC3AsPU")
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 st.set_page_config(page_title="PDF Document Parser", page_icon="📑")
 st.title("📑 Smart PDF Document Parser")
-st.write("Upload one or more PDFs. Each file may contain multiple documents "
-         "(Aadhaar, PAN, Passport, Study Certificates). "
-         "All parsed data will be saved to Excel with one sheet per document type.")
+st.write("Upload one or more PDFs (Aadhaar, PAN, Passport, or Study Certificates). "
+         "Each page will be OCR-processed, analyzed, and results saved into Excel.")
 
 # -------------------------------
 # Helper: extract clean JSON
@@ -49,60 +52,43 @@ def extract_json_block(text: str) -> str | None:
     return None
 
 # -------------------------------
-# Prompt for Gemini (multi-doc)
+# Prompt for Gemini
 # -------------------------------
 prompt = """
 You are an intelligent document parser.
-The uploaded PDF may contain MULTIPLE documents (Aadhaar, PAN, Passport, Study Certificates) inside one file.
+This page may contain Aadhaar, PAN, Passport, or Study Certificates.
 
-Your tasks:
-1. Detect all documents inside the PDF.
-2. For each document, identify its type.
-3. Extract ONLY the required fields.
-
-Required fields:
+Extract ONLY these fields based on type:
 - Aadhaar → Name, DOB, Aadhaar Number
 - PAN → Name, DOB, PAN Number
 - Passport → Name, Passport Number, Nationality, DOB, Expiry Date
-- Study Certificate → Student Name, Course, College/University, Passout Year
+- Study Certificate → Student Name, Course, College/University, Passout Year,CGPA
 
-Return ONLY valid JSON like this:
-
+Return JSON in this exact format:
 {
-  "documents": [
-    {
-      "document_type": "Study Certificate",
-      "extracted_fields": {
-        "Student Name": "Alice",
-        "Course": "B.Tech CSE",
-        "College/University": "XYZ University",
-        "Passout Year": "2025"
-      }
-    },
-    {
-      "document_type": "PAN",
-      "extracted_fields": {
-        "Name": "John Doe",
-        "DOB": "01-01-1990",
-        "PAN Number": "ABCDE1234F"
-      }
-    }
-  ]
+  "document_type": "Study Certificate",
+  "extracted_fields": {
+    "Student Name": "...",
+    "Course": "...",
+    "College/University": "...",
+    "Passout Year": "...",
+    "CGPA": "..."
+  }
 }
 """
 
 # -------------------------------
-# Column mapping per doc type
+# Column mapping per document type
 # -------------------------------
 doc_columns = {
     "Aadhaar": ["document_type", "Name", "DOB", "Aadhaar Number", "source_file"],
     "PAN": ["document_type", "Name", "DOB", "PAN Number", "source_file"],
     "Passport": ["document_type", "Name", "Passport Number", "Nationality", "DOB", "Expiry Date", "source_file"],
-    "Study Certificate": ["document_type", "Student Name", "Course", "College/University", "Passout Year", "source_file"],
+    "Study Certificate": ["document_type", "Student Name", "Course", "College/University", "Passout Year","CGPA","source_file"],
 }
 
 # -------------------------------
-# File uploader
+# File uploader (multiple PDFs)
 # -------------------------------
 uploaded_pdfs = st.file_uploader("Upload your documents (PDF only)", type=["pdf"], accept_multiple_files=True)
 
@@ -112,37 +98,42 @@ uploaded_pdfs = st.file_uploader("Upload your documents (PDF only)", type=["pdf"
 if uploaded_pdfs and st.button("Extract All Details"):
     results = []
 
-    with st.spinner("Analyzing PDFs with Gemini..."):
+    with st.spinner("Running OCR and analyzing all PDFs..."):
         for pdf in uploaded_pdfs:
-            try:
-                pdf_data = pdf.read()
-                response = model.generate_content(
-                    [prompt, {"mime_type": "application/pdf", "data": pdf_data}]
-                )
+            pdf_data = pdf.read()
+            doc = fitz.open(stream=pdf_data, filetype="pdf")
 
-                raw = (response.text or "").strip()
-                candidate = extract_json_block(raw) or raw
-                candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-                data = json.loads(candidate)
+            for page_num in range(len(doc)):
+                try:
+                    page = doc.load_page(page_num)
+                    pix = page.get_pixmap(dpi=300)  # Render page as image
+                    img = Image.open(io.BytesIO(pix.tobytes("png")))
 
-                # ✅ Handle multiple docs inside one PDF
-                if isinstance(data, dict) and "documents" in data:
-                    for doc in data["documents"]:
-                        flat = {"document_type": doc.get("document_type", "")}
-                        if isinstance(doc.get("extracted_fields"), dict):
-                            flat.update(doc["extracted_fields"])
-                        flat["source_file"] = pdf.name
+                    # OCR with pytesseract
+                    page_text = pytesseract.image_to_string(img)
+
+                    if not page_text.strip():
+                        continue  # skip empty pages
+
+                    response = model.generate_content([prompt, page_text])
+                    raw = (response.text or "").strip()
+
+                    candidate = extract_json_block(raw) or raw
+                    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+
+                    data = json.loads(candidate)
+
+                    if isinstance(data, dict):
+                        flat = {"document_type": data.get("document_type", "")}
+                        if isinstance(data.get("extracted_fields"), dict):
+                            flat.update(data["extracted_fields"])
+                        elif isinstance(data.get("extracted_data"), dict):
+                            flat.update(data["extracted_data"])
+                        flat["source_file"] = f"{pdf.name} (page {page_num+1})"
                         results.append(flat)
-                else:
-                    # fallback single document
-                    flat = {"document_type": data.get("document_type", "")}
-                    if isinstance(data.get("extracted_fields"), dict):
-                        flat.update(data["extracted_fields"])
-                    flat["source_file"] = pdf.name
-                    results.append(flat)
 
-            except Exception as e:
-                results.append({"source_file": pdf.name, "error": str(e)})
+                except Exception as e:
+                    results.append({"source_file": f"{pdf.name} (page {page_num+1})", "error": str(e)})
 
     # Convert to DataFrame
     df = pd.DataFrame(results)
@@ -150,7 +141,7 @@ if uploaded_pdfs and st.button("Extract All Details"):
     st.dataframe(df)
 
     # -------------------------------
-    # Excel download (multi-sheet)
+    # Excel download (multi-sheet, no All Documents)
     # -------------------------------
     xbuf = BytesIO()
     with pd.ExcelWriter(xbuf, engine="openpyxl") as writer:
@@ -165,6 +156,7 @@ if uploaded_pdfs and st.button("Extract All Details"):
                     group = group.reindex(columns=cols)
                 group.to_excel(writer, index=False, sheet_name=safe_sheet_name)
                 wrote_any = True
+
         if not wrote_any:
             pd.DataFrame([{"message": "No valid data extracted"}]).to_excel(
                 writer, index=False, sheet_name="Results"
